@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.LilyCode" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#121216</item>
+        <item name="android:statusBarColor">#23293C</item>
+        <item name="android:navigationBarColor">#121216</item>
+    </style>
+</resources>
