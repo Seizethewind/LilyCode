@@ -5,9 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
-import com.seizethewind.lilycode.ui.EditorScreen
-import com.seizethewind.lilycode.ui.HomeScreen
-import com.seizethewind.lilycode.ui.LilyTheme
+import com.seizethewind.lilycode.ui.editor.EditorScreen
+import com.seizethewind.lilycode.ui.home.HomeScreen
+import com.seizethewind.lilycode.ui.theme.LilyTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
