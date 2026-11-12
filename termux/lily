@@ -1,0 +1,5 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# Open a file in LilyCode. The file must be inside a folder added as a LilyCode project.
+[ -n "$1" ] && [ -f "$1" ] || { echo "usage: lily <file>" >&2; exit 1; }
+path=$(realpath "$1")
+exec am start -n com.seizethewind.lilycode/.MainActivity --es path "$path"
