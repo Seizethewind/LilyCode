@@ -2,7 +2,7 @@ package com.seizethewind.lilycode.util
 
 data class RunSpec(val exe: String, val args: List<String>, val dir: String)
 
-private const val BIN = "/data/data/com.termux/files/usr/bin/"
+const val TERMUX_BIN = "/data/data/com.termux/files/usr/bin/"
 
 private val runners = mapOf(
     "py" to listOf("python"), "sh" to listOf("bash"), "js" to listOf("node"), "rb" to listOf("ruby"),
@@ -12,5 +12,5 @@ private val runners = mapOf(
 /** How to run the file at [path] in Termux, or null when its extension has no runner. */
 fun runSpec(path: String): RunSpec? {
     val cmd = runners[path.substringAfterLast('.', "").lowercase()] ?: return null
-    return RunSpec(BIN + cmd[0], cmd.drop(1) + path, path.substringBeforeLast('/').ifEmpty { "/" })
+    return RunSpec(TERMUX_BIN + cmd[0], cmd.drop(1) + path, path.substringBeforeLast('/').ifEmpty { "/" })
 }

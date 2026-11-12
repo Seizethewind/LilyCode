@@ -10,7 +10,11 @@ import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 
-class Entry(val uri: Uri, val docId: String, val name: String, val isDir: Boolean)
+/** [parentId] is the id of the folder that lists it. */
+class Entry(val uri: Uri, val docId: String, val name: String, val isDir: Boolean, val parentId: String)
+
+/** A file's text. [note] is set when it opens read-only, and says why. */
+class Read(val text: String, val note: String?)
 
 /** File access through the Storage Access Framework. Blocking: call off the main thread. */
 class FileStore(private val cr: ContentResolver) {
@@ -22,27 +26,28 @@ class FileStore(private val cr: ContentResolver) {
             while (c.moveToNext()) {
                 val id = c.getString(0)
                 val dir = c.getString(2) == Document.MIME_TYPE_DIR
-                out += Entry(DocumentsContract.buildDocumentUriUsingTree(tree, id), id, c.getString(1) ?: id, dir)
+                out += Entry(DocumentsContract.buildDocumentUriUsingTree(tree, id), id, c.getString(1) ?: id, dir, dirId)
             }
         }
         return out.sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() }))
     }
 
-    /** Refuses big, binary and non-UTF-8 files so saving can never corrupt them. */
-    fun read(uri: Uri): String {
-        val bytes = cr.openInputStream(uri)?.use { it.readUpTo(MAX_BYTES) } ?: error("Cannot open file")
+    /** Binary files are refused. Big or non-UTF-8 files open read-only, so saving can never corrupt them. */
+    fun read(uri: Uri): Read {
+        val (bytes, cut) = cr.openInputStream(uri)?.use { it.readUpTo(MAX_BYTES) } ?: error("Cannot open file")
         if (bytes.any { it == 0.toByte() }) error("Binary file")
-        try {
-            return Charsets.UTF_8.newDecoder()
+        if (cut) return Read(String(bytes, Charsets.UTF_8), "Showing the first 1 MB only. Read-only.")
+        return try {
+            val strict = Charsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(ByteBuffer.wrap(bytes)).toString()
+            Read(strict.decode(ByteBuffer.wrap(bytes)).toString(), null)
         } catch (e: CharacterCodingException) {
-            error("Not a UTF-8 text file")
+            Read(String(bytes, Charsets.UTF_8), "Not valid UTF-8. Opened read-only so saving cannot corrupt it.")
         }
     }
 
-    // shortcut: truncate-then-write, not atomic; upgrade to temp file + rename if providers allow it
+    // shortcut: truncate-then-write, not atomic; Recovery keeps a copy until this returns
     fun write(uri: Uri, text: String) {
         (cr.openOutputStream(uri, "wt") ?: error("Cannot write file")).use { it.write(text.toByteArray()) }
     }
@@ -53,22 +58,22 @@ class FileStore(private val cr: ContentResolver) {
         // octet-stream so providers do not append an extension
         val uri = DocumentsContract.createDocument(cr, dir, "application/octet-stream", name)
             ?: error("Cannot create $name")
-        return Entry(uri, DocumentsContract.getDocumentId(uri), name, false)
+        return Entry(uri, DocumentsContract.getDocumentId(uri), name, false, dirId)
     }
 
     fun name(uri: Uri): String = cr.query(uri, arrayOf(Document.COLUMN_DISPLAY_NAME), null, null, null)
         ?.use { if (it.moveToFirst()) it.getString(0) else null } ?: uri.lastPathSegment ?: "project"
 
-    private fun InputStream.readUpTo(max: Int): ByteArray {
+    /** The first [max] bytes, and whether the stream had more. */
+    private fun InputStream.readUpTo(max: Int): Pair<ByteArray, Boolean> {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(8192)
-        while (true) {
-            val n = read(buf)
-            if (n < 0) break
-            if (out.size() + n > max) error("File is larger than 1 MB")
+        while (out.size() < max) {
+            val n = read(buf, 0, minOf(buf.size, max - out.size()))
+            if (n < 0) return out.toByteArray() to false
             out.write(buf, 0, n)
         }
-        return out.toByteArray()
+        return out.toByteArray() to (read() >= 0)
     }
 
     private companion object { const val MAX_BYTES = 1_000_000 }
