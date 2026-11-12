@@ -62,6 +62,7 @@ class FileManager(private val state: EditorState) {
         state.tabs.forEach { d ->
             val id = remapId(DocumentsContract.getDocumentId(d.uri), old, dest) ?: return@forEach
             d.uri = state.uriOf(id)
+            d.stamp = null // a move can change the reported time; change detection resumes after the next save
             if (id == dest) d.name = name
         }
         state.persist()

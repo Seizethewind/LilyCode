@@ -2,12 +2,17 @@ package com.seizethewind.lilycode.data
 
 import android.content.Context
 import android.net.Uri
+import com.seizethewind.lilycode.util.joinDraft
+import com.seizethewind.lilycode.util.splitDraft
 import java.io.File
 import java.security.MessageDigest
 
+/** Unsaved text kept for [uri]. [stamp] is the file's disk stamp the text was based on. */
+class Draft(val uri: Uri, val stamp: String?, val text: String)
+
 /**
- * App-private copy of the text being saved, kept until the write succeeds. If the write fails or the app
- * dies halfway (a truncating write is not atomic), the text is still here to be restored.
+ * App-private copies of unsaved text, and of text being saved. A copy is dropped once the file is written, so a
+ * kill, a failed write or a half-finished truncating write loses nothing.
  */
 class Recovery(ctx: Context) {
     private val dir = File(ctx.filesDir, "recovery").apply { mkdirs() }
@@ -17,14 +22,12 @@ class Recovery(ctx: Context) {
         return File(dir, hash.joinToString("") { "%02x".format(it) })
     }
 
-    fun keep(uri: Uri, text: String) = file(uri).writeText("$uri\n$text")
+    fun keep(uri: Uri, text: String, stamp: String?) = file(uri).writeText(joinDraft(uri.toString(), stamp, text))
 
     fun drop(uri: Uri) { file(uri).delete() }
 
-    /** Kept copies whose file uri starts with [prefix], as (uri, text). */
-    fun pending(prefix: String): List<Pair<Uri, String>> = dir.listFiles().orEmpty().mapNotNull { f ->
-        val s = f.readText()
-        val nl = s.indexOf('\n')
-        if (nl > 0 && s.startsWith(prefix)) Uri.parse(s.substring(0, nl)) to s.substring(nl + 1) else null
+    /** Kept copies whose file uri starts with [prefix]. */
+    fun pending(prefix: String): List<Draft> = dir.listFiles().orEmpty().mapNotNull { f ->
+        splitDraft(f.readText())?.takeIf { it.uri.startsWith(prefix) }?.let { Draft(Uri.parse(it.uri), it.stamp, it.text) }
     }
 }

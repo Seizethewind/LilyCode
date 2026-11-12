@@ -8,7 +8,10 @@ import kotlinx.coroutines.withContext
 
 private fun leaf(uri: Uri) = DocumentsContract.getDocumentId(uri).substringAfterLast('/')
 
-/** Reopens last session's tabs, then any unsaved text left in app storage. Runs once; drafts wait for it. */
+/**
+ * Reopens last session's tabs, then any unsaved text left in app storage. A recovered draft keeps the disk stamp it
+ * was based on, so saving it cannot silently overwrite a newer file. Runs once; drafts wait for it.
+ */
 suspend fun EditorState.restore() {
     if (restored) return
     restored = true
@@ -17,13 +20,14 @@ suspend fun EditorState.restore() {
         for (u in uris) {
             val uri = Uri.parse(u)
             val r = runCatching { withContext(Dispatchers.IO) { store.read(uri) } }.getOrNull() ?: continue
-            tabs += Doc(uri, leaf(uri), r.text, r.note != null)
+            tabs += Doc(uri, leaf(uri), r.text, r.note != null, stamp = r.stamp)
         }
         current = cur.coerceIn(-1, tabs.lastIndex)
         val kept = withContext(Dispatchers.IO) { recovery.pending(project.uri) }
-        for ((uri, text) in kept) {
-            val open = tabs.firstOrNull { it.uri == uri }
-            if (open != null) open.value = TextFieldValue(text) else tabs += Doc(uri, leaf(uri), text, saved = "")
+        for (k in kept) {
+            val open = tabs.firstOrNull { it.uri == k.uri }
+            if (open != null) { open.value = TextFieldValue(k.text); open.stamp = k.stamp }
+            else tabs += Doc(k.uri, leaf(k.uri), k.text, saved = "", stamp = k.stamp)
         }
         if (kept.isNotEmpty()) error = "Recovered unsaved text. Save to keep it."
         persist()

@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Open files, the current one, and opening, saving and closing them. Restore is in Session.kt, drafts in Drafts.kt. */
+/** Open files, the current one, and opening, saving and closing them. Restore is in Session.kt, drafts in Drafts.kt, disk changes in Sync.kt. */
 class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Project) {
     internal val store = FileStore(ctx.contentResolver)
     internal val projects = Projects(ctx)
@@ -33,6 +33,7 @@ class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Proj
     val tabs = mutableStateListOf<Doc>()
     var current by mutableIntStateOf(-1)
     var error by mutableStateOf<String?>(null)
+    var conflict by mutableStateOf<Doc?>(null)
     val doc: Doc? get() = tabs.getOrNull(current)
 
     /** Runs blocking file work off the main thread; any failure becomes [error] and returns [fallback]. */
@@ -55,7 +56,7 @@ class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Proj
         scope.launch {
             val r = io("Open", null) { store.read(uri) } ?: return@launch
             if (tabs.none { it.uri == uri }) {
-                show(Doc(uri, name, r.text, r.note != null))
+                show(Doc(uri, name, r.text, r.note != null, stamp = r.stamp))
                 r.note?.let { error = it }
             }
         }
@@ -69,13 +70,18 @@ class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Proj
 
     fun persist() = projects.saveSession(project, tabs.map { it.uri.toString() }, current)
 
-    /** The text is copied to app storage first, and that copy is dropped only after the write succeeds. */
-    suspend fun saveDoc(d: Doc): Boolean {
+    /**
+     * Saves [d]. If the file changed on disk since it was read, nothing is written and [conflict] asks the user;
+     * [force] skips that check. The text is copied to app storage first, and that copy is dropped only after the write.
+     */
+    suspend fun saveDoc(d: Doc, force: Boolean = false): Boolean {
         if (d.readOnly) return true
         val text = d.value.text
         val uri = d.uri
-        val ok = io("Save", false) { recovery.keep(uri, text); store.write(uri, text); recovery.drop(uri); true }
-        if (ok) d.saved = text
+        val base = d.stamp
+        if (!force && base != null && io("Save", base) { store.stamp(uri) ?: base } != base) { conflict = d; return false }
+        val ok = io("Save", false) { recovery.keep(uri, text, base); store.write(uri, text); recovery.drop(uri); true }
+        if (ok) { d.saved = text; d.stamp = io("Save", null) { store.stamp(uri) } }
         return ok
     }
 

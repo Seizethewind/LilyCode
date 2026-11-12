@@ -2,13 +2,13 @@ package com.seizethewind.lilycode.ui.editor
 
 import android.net.Uri
 
-private class Snap(val uri: Uri, val text: String, val dirty: Boolean)
+private class Snap(val uri: Uri, val text: String, val dirty: Boolean, val stamp: String?)
 
-private fun EditorState.snap() = tabs.map { Snap(it.uri, it.value.text, it.dirty) }
+private fun EditorState.snap() = tabs.map { Snap(it.uri, it.value.text, it.dirty, it.stamp) }
 
 // A tab that is clean again (saved, or edited back to its saved text) must not leave an old draft to be restored.
 private fun EditorState.write(snaps: List<Snap>) =
-    snaps.forEach { if (it.dirty) recovery.keep(it.uri, it.text) else recovery.drop(it.uri) }
+    snaps.forEach { if (it.dirty) recovery.keep(it.uri, it.text, it.stamp) else recovery.drop(it.uri) }
 
 /** Copies every unsaved tab to app storage, off the main thread. Not before the session is restored. */
 suspend fun EditorState.saveDrafts() {

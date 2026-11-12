@@ -55,13 +55,18 @@ fun EditorScreen(project: Project, initial: String?, onHome: () -> Unit) {
     LaunchedEffect(state, initial) { state.restore(); initial?.let(state::openDocId) }
     state.error?.let { msg -> LaunchedEffect(msg) { snack.showSnackbar(msg); state.error = null } }
     // Unsaved text is copied to app storage 1.5 s after typing stops, and at once when the app leaves the screen.
+    // On return, tabs with no unsaved edits pick up changes made elsewhere (for example in Termux).
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, state) {
-        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) state.saveDraftsNow() }
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) state.saveDraftsNow()
+            if (e == Lifecycle.Event.ON_START) scope.launch { state.refreshClean() }
+        }
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs) }
     }
     LaunchedEffect(text) { delay(1500); state.saveDrafts() }
+    ConflictDialog(state)
 
     fun step(d: Int) {
         if (hits.isEmpty()) return

@@ -10,8 +10,16 @@ import androidx.compose.ui.text.input.TextFieldValue
 /**
  * One open file. [saved] is the text last written, so [dirty] means unsaved edits. A [readOnly] file
  * (too big or not UTF-8) can never be edited or written. [uri] and [name] change when the file is renamed or moved.
+ * [stamp] is the file's disk stamp when it was last read or written; null turns off change detection for it.
  */
-class Doc(uri: Uri, name: String, text: String, val readOnly: Boolean = false, saved: String = text) {
+class Doc(
+    uri: Uri,
+    name: String,
+    text: String,
+    val readOnly: Boolean = false,
+    saved: String = text,
+    var stamp: String? = null,
+) {
     var uri by mutableStateOf(uri)
     var name by mutableStateOf(name)
     var value by mutableStateOf(TextFieldValue(text))
