@@ -20,12 +20,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Open files, the current one, and opening, saving and closing them. Restoring a session is in Session.kt. */
+/** Open files, the current one, and opening, saving and closing them. Restore is in Session.kt, drafts in Drafts.kt. */
 class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Project) {
     internal val store = FileStore(ctx.contentResolver)
     internal val projects = Projects(ctx)
     internal val recovery = Recovery(ctx)
     internal var restored = false
+    internal var ready = false
     private val tree: Uri = Uri.parse(project.uri)
     val ops = FileOps(ctx, tree, store)
     val rootId: String = DocumentsContract.getTreeDocumentId(tree)

@@ -13,7 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.seizethewind.lilycode.data.Project
 import com.seizethewind.lilycode.data.TermuxRun
 import com.seizethewind.lilycode.ui.theme.Bar
@@ -21,6 +24,7 @@ import com.seizethewind.lilycode.ui.theme.Muted
 import com.seizethewind.lilycode.ui.theme.Surface0
 import com.seizethewind.lilycode.util.findAll
 import com.seizethewind.lilycode.util.tokenize
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** [initial] is a document id to open on arrival (from `lily <file>` in Termux). */
@@ -46,10 +50,18 @@ fun EditorScreen(project: Project, initial: String?, onHome: () -> Unit) {
         if (ok) state.runFile() else state.error = "Run needs the Termux permission"
     }
     // Leaving saves every open file first, and stays here if a save fails, so nothing is lost.
-    val exit = { scope.launch { if (state.saveAll()) onHome() } }
+    val exit = { scope.launch { if (state.saveAll()) { state.saveDrafts(); onHome() } } }
     BackHandler { exit() }
     LaunchedEffect(state, initial) { state.restore(); initial?.let(state::openDocId) }
     state.error?.let { msg -> LaunchedEffect(msg) { snack.showSnackbar(msg); state.error = null } }
+    // Unsaved text is copied to app storage 1.5 s after typing stops, and at once when the app leaves the screen.
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner, state) {
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) state.saveDraftsNow() }
+        owner.lifecycle.addObserver(obs)
+        onDispose { owner.lifecycle.removeObserver(obs) }
+    }
+    LaunchedEffect(text) { delay(1500); state.saveDrafts() }
 
     fun step(d: Int) {
         if (hits.isEmpty()) return
