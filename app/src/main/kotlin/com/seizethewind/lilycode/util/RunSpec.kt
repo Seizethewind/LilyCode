@@ -1,9 +1,6 @@
 package com.seizethewind.lilycode.util
 
-class RunSpec(val exe: String, val args: List<String>, val dir: String) {
-    override fun equals(other: Any?) = other is RunSpec && exe == other.exe && args == other.args && dir == other.dir
-    override fun hashCode() = listOf(exe, args, dir).hashCode()
-}
+data class RunSpec(val exe: String, val args: List<String>, val dir: String)
 
 private const val BIN = "/data/data/com.termux/files/usr/bin/"
 
