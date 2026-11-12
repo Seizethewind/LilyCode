@@ -22,9 +22,10 @@ One line per file: what it holds. Keep it current (see CLAUDE.md). Paths are und
 - `ProjectRow.kt`: one project row with remove button.
 
 ### ui/editor/
-- `EditorScreen.kt`: editor screen. Wires drawer, top bar, tabs, find, output and body.
+- `EditorScreen.kt`: editor screen. Wires drawer, top bar, tabs, find, output and body, and triggers drafts.
 - `EditorState.kt`: open files, current tab, and opening, saving and closing them.
-- `Session.kt`: reopens last session's tabs and recovers text from an unfinished save.
+- `Session.kt`: reopens last session's tabs and recovers unsaved text from app storage.
+- `Drafts.kt`: copies unsaved tabs to app storage while typing and when the app leaves the screen.
 - `Runner.kt`: saves the current file and runs it in Termux.
 - `Doc.kt`: one open file and its unsaved text. Read-only flag. Inserts at the cursor.
 - `EditorBody.kt`: line numbers and the text field.
@@ -43,7 +44,7 @@ One line per file: what it holds. Keep it current (see CLAUDE.md). Paths are und
 - `Projects.kt`: saves and loads the project list and each project's open tabs. Finds the project that holds a Termux path.
 - `FileStore.kt`: lists, reads, writes and creates files through Android's file picker access. Opens big or non-UTF-8 files read-only.
 - `FileOps.kt`: create, rename, delete, move and copy. Uses shell commands in Termux folders, because Termux's provider cannot do these.
-- `Recovery.kt`: keeps a private copy of text while it is being saved, so a failed or interrupted write loses nothing.
+- `Recovery.kt`: private copies of unsaved or half-saved text, kept until the file is written, so a kill or failed write loses nothing.
 - `TermuxRun.kt`: sends a command to Termux and waits for its result. Holds `ExecResult`.
 - `RunResultReceiver.kt`: receives Termux's result and routes it to the waiting command or to `RunOutput`.
 - `RunOutput.kt`: the last run's output and running flag.
