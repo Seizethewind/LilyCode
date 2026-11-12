@@ -8,7 +8,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.input.TextFieldValue
 import com.seizethewind.lilycode.data.Entry
 import com.seizethewind.lilycode.data.FileOps
 import com.seizethewind.lilycode.data.FileStore
@@ -21,13 +20,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Open files, the current one, and opening, saving, closing and restoring them. */
+/** Open files, the current one, and opening, saving and closing them. Restoring a session is in Session.kt. */
 class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Project) {
-    private val store = FileStore(ctx.contentResolver)
-    private val projects = Projects(ctx)
-    private val recovery = Recovery(ctx)
+    internal val store = FileStore(ctx.contentResolver)
+    internal val projects = Projects(ctx)
+    internal val recovery = Recovery(ctx)
+    internal var restored = false
     private val tree: Uri = Uri.parse(project.uri)
-    private var restored = false
     val ops = FileOps(ctx, tree, store)
     val rootId: String = DocumentsContract.getTreeDocumentId(tree)
     val tabs = mutableStateListOf<Doc>()
@@ -46,8 +45,6 @@ class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Proj
     }
 
     fun uriOf(id: String): Uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
-
-    private fun leaf(uri: Uri) = DocumentsContract.getDocumentId(uri).substringAfterLast('/')
 
     suspend fun list(dirId: String): List<Entry> = io("List", emptyList()) { store.list(tree, dirId) }
 
@@ -70,26 +67,6 @@ class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Proj
     fun show(d: Doc) { tabs += d; select(tabs.lastIndex) }
 
     fun persist() = projects.saveSession(project, tabs.map { it.uri.toString() }, current)
-
-    /** Reopens last session's tabs, then any text a failed or interrupted save left behind. Runs once. */
-    suspend fun restore() {
-        if (restored) return
-        restored = true
-        val (uris, cur) = projects.session(project)
-        for (u in uris) {
-            val uri = Uri.parse(u)
-            val r = runCatching { withContext(Dispatchers.IO) { store.read(uri) } }.getOrNull() ?: continue
-            tabs += Doc(uri, leaf(uri), r.text, r.note != null)
-        }
-        current = cur.coerceIn(-1, tabs.lastIndex)
-        val kept = withContext(Dispatchers.IO) { recovery.pending(project.uri) }
-        for ((uri, text) in kept) {
-            val open = tabs.firstOrNull { it.uri == uri }
-            if (open != null) open.value = TextFieldValue(text) else tabs += Doc(uri, leaf(uri), text, saved = "")
-        }
-        if (kept.isNotEmpty()) error = "Recovered text from an unfinished save. Save to keep it."
-        persist()
-    }
 
     /** The text is copied to app storage first, and that copy is dropped only after the write succeeds. */
     suspend fun saveDoc(d: Doc): Boolean {
