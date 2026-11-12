@@ -48,7 +48,7 @@ fun EditorScreen(project: Project, initial: String?, onHome: () -> Unit) {
     // Leaving saves every open file first, and stays here if a save fails, so nothing is lost.
     val exit = { scope.launch { if (state.saveAll()) onHome() } }
     BackHandler { exit() }
-    LaunchedEffect(initial) { initial?.let(state::openDocId) }
+    LaunchedEffect(state, initial) { state.restore(); initial?.let(state::openDocId) }
     state.error?.let { msg -> LaunchedEffect(msg) { snack.showSnackbar(msg); state.error = null } }
 
     fun step(d: Int) {
@@ -68,7 +68,10 @@ fun EditorScreen(project: Project, initial: String?, onHome: () -> Unit) {
             topBar = {
                 TopAppBar(
                     navigationIcon = { IconButton({ scope.launch { drawer.open() } }) { Icon(Icons.Default.Menu, "Files") } },
-                    title = { Text(doc?.name ?: project.name, style = MaterialTheme.typography.titleMedium) },
+                    title = {
+                        val tag = if (doc?.readOnly == true) " (read-only)" else ""
+                        Text((doc?.name ?: project.name) + tag, style = MaterialTheme.typography.titleMedium)
+                    },
                     actions = {
                         IconButton({ state.save() }) { Icon(Icons.Default.Check, "Save") }
                         IconButton({ if (TermuxRun.allowed(ctx)) state.runFile() else askRun.launch(TermuxRun.PERM) }) {

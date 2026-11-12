@@ -35,6 +35,7 @@ fun EditorBody(doc: Doc, transform: VisualTransformation, vs: ScrollState, modif
             BasicTextField(
                 doc.value, { doc.value = it },
                 Modifier.padding(8.dp).defaultMinSize(minWidth = 320.dp, minHeight = 480.dp),
+                readOnly = doc.readOnly,
                 textStyle = style.copy(color = MaterialTheme.colorScheme.onBackground),
                 cursorBrush = SolidColor(Accent),
                 visualTransformation = transform,

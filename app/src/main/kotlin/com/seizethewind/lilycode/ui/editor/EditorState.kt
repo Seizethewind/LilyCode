@@ -8,23 +8,27 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.TextFieldValue
 import com.seizethewind.lilycode.data.Entry
+import com.seizethewind.lilycode.data.FileOps
 import com.seizethewind.lilycode.data.FileStore
 import com.seizethewind.lilycode.data.Project
-import com.seizethewind.lilycode.data.RunOutput
-import com.seizethewind.lilycode.data.TermuxRun
-import com.seizethewind.lilycode.util.TermuxPath
-import com.seizethewind.lilycode.util.runSpec
+import com.seizethewind.lilycode.data.Projects
+import com.seizethewind.lilycode.data.Recovery
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Open files, the current one, and every file operation of the editor. */
-class EditorState(private val ctx: Context, private val scope: CoroutineScope, val project: Project) {
+/** Open files, the current one, and opening, saving, closing and restoring them. */
+class EditorState(val ctx: Context, val scope: CoroutineScope, val project: Project) {
     private val store = FileStore(ctx.contentResolver)
+    private val projects = Projects(ctx)
+    private val recovery = Recovery(ctx)
     private val tree: Uri = Uri.parse(project.uri)
+    private var restored = false
+    val ops = FileOps(ctx, tree, store)
     val rootId: String = DocumentsContract.getTreeDocumentId(tree)
     val tabs = mutableStateListOf<Doc>()
     var current by mutableIntStateOf(-1)
@@ -32,7 +36,7 @@ class EditorState(private val ctx: Context, private val scope: CoroutineScope, v
     val doc: Doc? get() = tabs.getOrNull(current)
 
     /** Runs blocking file work off the main thread; any failure becomes [error] and returns [fallback]. */
-    private suspend fun <T> io(what: String, fallback: T, block: () -> T): T = try {
+    suspend fun <T> io(what: String, fallback: T, block: suspend () -> T): T = try {
         withContext(Dispatchers.IO) { block() }
     } catch (e: CancellationException) {
         throw e
@@ -41,32 +45,58 @@ class EditorState(private val ctx: Context, private val scope: CoroutineScope, v
         fallback
     }
 
+    fun uriOf(id: String): Uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+
+    private fun leaf(uri: Uri) = DocumentsContract.getDocumentId(uri).substringAfterLast('/')
+
     suspend fun list(dirId: String): List<Entry> = io("List", emptyList()) { store.list(tree, dirId) }
 
     fun open(uri: Uri, name: String) {
         val i = tabs.indexOfFirst { it.uri == uri }
-        if (i >= 0) { current = i; return }
+        if (i >= 0) { select(i); return }
         scope.launch {
-            val text = io("Open", null) { store.read(uri) } ?: return@launch
-            if (tabs.none { it.uri == uri }) show(Doc(uri, name, text))
+            val r = io("Open", null) { store.read(uri) } ?: return@launch
+            if (tabs.none { it.uri == uri }) {
+                show(Doc(uri, name, r.text, r.note != null))
+                r.note?.let { error = it }
+            }
         }
     }
 
-    fun openDocId(id: String) = open(DocumentsContract.buildDocumentUriUsingTree(tree, id), id.substringAfterLast('/'))
+    fun openDocId(id: String) = open(uriOf(id), id.substringAfterLast('/'))
 
-    fun create(dirId: String, name: String, done: () -> Unit) {
-        scope.launch {
-            val e = io("Create", null) { store.create(tree, dirId, name.trim()) } ?: return@launch
-            show(Doc(e.uri, e.name, ""))
-            done()
+    fun select(i: Int) { current = i; persist() }
+
+    fun show(d: Doc) { tabs += d; select(tabs.lastIndex) }
+
+    fun persist() = projects.saveSession(project, tabs.map { it.uri.toString() }, current)
+
+    /** Reopens last session's tabs, then any text a failed or interrupted save left behind. Runs once. */
+    suspend fun restore() {
+        if (restored) return
+        restored = true
+        val (uris, cur) = projects.session(project)
+        for (u in uris) {
+            val uri = Uri.parse(u)
+            val r = runCatching { withContext(Dispatchers.IO) { store.read(uri) } }.getOrNull() ?: continue
+            tabs += Doc(uri, leaf(uri), r.text, r.note != null)
         }
+        current = cur.coerceIn(-1, tabs.lastIndex)
+        val kept = withContext(Dispatchers.IO) { recovery.pending(project.uri) }
+        for ((uri, text) in kept) {
+            val open = tabs.firstOrNull { it.uri == uri }
+            if (open != null) open.value = TextFieldValue(text) else tabs += Doc(uri, leaf(uri), text, saved = "")
+        }
+        if (kept.isNotEmpty()) error = "Recovered text from an unfinished save. Save to keep it."
+        persist()
     }
 
-    private fun show(d: Doc) { tabs += d; current = tabs.lastIndex }
-
+    /** The text is copied to app storage first, and that copy is dropped only after the write succeeds. */
     suspend fun saveDoc(d: Doc): Boolean {
+        if (d.readOnly) return true
         val text = d.value.text
-        val ok = io("Save", false) { store.write(d.uri, text); true }
+        val uri = d.uri
+        val ok = io("Save", false) { recovery.keep(uri, text); store.write(uri, text); recovery.drop(uri); true }
         if (ok) d.saved = text
         return ok
     }
@@ -81,25 +111,10 @@ class EditorState(private val ctx: Context, private val scope: CoroutineScope, v
         scope.launch {
             if (d.dirty && !saveDoc(d)) return@launch
             val idx = tabs.indexOf(d)
+            if (idx < 0) return@launch
             tabs.removeAt(idx)
             current = if (idx < current) current - 1 else minOf(current, tabs.lastIndex)
-        }
-    }
-
-    fun runFile() {
-        val d = doc ?: return
-        val path = if (d.uri.authority == TermuxPath.AUTHORITY) DocumentsContract.getDocumentId(d.uri) else null
-        if (path == null) { error = "Run only works on files in Termux"; return }
-        val spec = runSpec(path)
-        if (spec == null) { error = "No runner for ${d.name}"; return }
-        scope.launch {
-            if (d.dirty && !saveDoc(d)) return@launch
-            RunOutput.begin()
-            try {
-                TermuxRun.start(ctx, spec)
-            } catch (e: Exception) {
-                RunOutput.finish("Cannot start Termux: ${e.message}\nIs allow-external-apps=true set in termux.properties?")
-            }
+            persist()
         }
     }
 }

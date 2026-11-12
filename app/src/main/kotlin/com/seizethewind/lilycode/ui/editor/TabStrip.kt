@@ -27,7 +27,7 @@ fun TabStrip(state: EditorState) {
         state.tabs.forEachIndexed { i, d ->
             val on = i == state.current
             Row(
-                Modifier.background(if (on) Surface0 else Surface1).clickable { state.current = i }.padding(start = 12.dp),
+                Modifier.background(if (on) Surface0 else Surface1).clickable { state.select(i) }.padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
